@@ -49,6 +49,9 @@ class Source(Operator, ABC):
         raise NotImplementedError
 
 
+SourceOperator = Source
+
+
 @ray.remote
 class KafkaSource(Source):
     def __init__(self, topic: str, cache_size=DEFAULT_STATE_CACHE_SIZE):
@@ -144,6 +147,8 @@ class FileReader(Source):
         filename,
         cache_size=DEFAULT_STATE_CACHE_SIZE,
     ):
+        import pandas as pd
+        
         schema = Schema(
             "key",
             {
