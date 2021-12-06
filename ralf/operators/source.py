@@ -30,6 +30,8 @@ class Source(Operator, ABC):
                 return
             # TODO(peter): optimize by adding batch send.
             for record in records:
+                # assert isinstance(record, Record) # make sure record is a Record object
+                print("sending", record)
                 self.send(record)
             # Yield the coroutine so it can be queried.
             await asyncio.sleep(0)
@@ -47,6 +49,9 @@ class Source(Operator, ABC):
 
     def query(self, source_handle: ActorHandle, key: str):
         raise NotImplementedError
+
+
+SourceOperator = Source
 
 
 @ray.remote
@@ -144,6 +149,8 @@ class FileReader(Source):
         filename,
         cache_size=DEFAULT_STATE_CACHE_SIZE,
     ):
+        import pandas as pd
+
         schema = Schema(
             "key",
             {
