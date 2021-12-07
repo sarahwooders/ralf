@@ -149,7 +149,8 @@ class Operator(ABC):
 
         # Set scopes
         self._scopes = None
-        self.parent_key = defaultdict(list)
+        self.key_to_parents = defaultdict(list)
+        self.parent_to_keys = defaultdict(list)
 
         # Parent tables (source of updates)
         self._parents = []
@@ -274,53 +275,83 @@ class Operator(ABC):
 
     def retract_key(self, key) -> ray.ObjectRef:
         """ Retract data from current table
+
+        Delete the key from the operator's table, and propagate the deleted record 
+        to children with self.retract(parent_record)
         """
         # remove
+        record = self._table.point_query(key)
         self._table.delete(key) 
 
         # propagate to children
         for child in self._children:
-            child.choose_actor(key).retract.remote(key)
+            child.choose_actor(key).retract.remote(record)
 
 
-    async def retract(self, key, parent_record: Record = None): 
+    async def retract(self, deleted_parent_record, update_parent_record = None):
+    #async def retract(self, parent_record: Record = None): 
+
+        """ Recursively propagate retraction 
+
+        Upstream tables will delete and potentially re-compute their records 
+        as a result of a retraction. 
+
+        :deleted_parent_record: Upstream parent record that was deleted that is propagated
+        :update_parent_record: (Optional) New value of deleted parent 
+
+        """
+       
+        # get keys affected by parent record
+        keys = self.parent_to_keys[deleted_parent_record.key]
+        print("PARENT", deleted_parent_record.key, "CHILDREN", keys)
+
+        for key in keys: 
    
-        # reconstruct 
-        record = self.on_delete_record(parent_record)
-        print("DELETE", record)
-        if not isinstance(record, Record) or record is None: 
-            # determine keys dependent on upstream parent record
-            parent_keys = self.parent_key[key]
-            print("parent keys", key, parent_keys)
+            # reconstruct 
+            record = self.on_delete_record(deleted_parent_record)
+            print("DELETE", record)
+            if not isinstance(record, Record) or record is None: 
+                # determine keys dependent on upstream parent record
 
-            # get required parent inputs 
-            parent_records = await asyncio.gather(
-                *[parent.get_async(key) for parent in self.get_parents() for key in parent_keys],
-                return_exceptions=True
-            )
-            print("parent records", parent_records)
+                parent_keys = self.key_to_parents[key]
+                print("parent keys", key, parent_keys)
 
-            # filter out exceptions/missing records
-            parent_records = [rec for rec in parent_records if isinstance(rec, Record)]
-            print("filtered", parent_records)
+                # get required parent inputs 
+                parent_records = await asyncio.gather(
+                    *[parent.get_async(key) for parent in self.get_parents() for key in parent_keys],
+                    return_exceptions=True
+                )
+                print("parent records", parent_records)
 
-            # TODO: (Sarah) this seems like it'd result in duplicate computation? 
-            # for each parent deletion we're processing seperately that all affect the same child
-            record = self.on_records(parent_records)
-            print("record", record)
+                # filter out exceptions/missing records
+                parent_records = [rec for rec in parent_records if isinstance(rec, Record)]
+                print("filtered", parent_records)
 
-        self._table.delete(key)
-        if record is not None:
-            self._table.update(record)
-        print("TABLE", self._table.records)
-        # call retract on dependent children
-        for child in self._children:
-            child.choose_actor(key).retract.remote(key)
+                # TODO: (Sarah) this seems like it'd result in duplicate computation? 
+                # for each parent deletion we're processing seperately that all affect the same child
+                record = self.on_records(parent_records)
+                print("record", record)
+
+
+            # assert that updated record has same key as you'd expect would be affected
+            assert record is None or record.key == key 
+
+            # store original record and update table
+            orig_record = self._table.point_query(key) 
+            self._table.delete(key)
+            if record is not None:
+                self._table.update(record)
+            print("TABLE", self._table.records)
+
+            # call retract on dependent children
+            for child in self._children:
+                child.choose_actor(key).retract.remote(orig_record, record)
 
     def _on_record_helper(self, record: Record):
         result = self.on_record(record)
 
-        self.parent_key[result.key].append(record.key)
+        self.key_to_parents[result.key].append(record.key)
+        self.parent_to_keys[record.key].append(result.key)
 
         if result is not None:
             if isinstance(result, list):  # multiple output values
