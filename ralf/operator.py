@@ -191,7 +191,8 @@ class Operator(ABC):
             "cache_size": self._cache_size,
             "lazy": self._lazy,
             "thread_pool_size": self._thread_pool._max_workers,
-            "queue_size": {k: v.qsize() for k, v in self._events.items()},
+            "queue_size": sum([v.qsize() for v in self._events.values()]),
+            "key_queue_size": {k: v.qsize() for k, v in self._events.items()},
         }
 
     def _worker(self):

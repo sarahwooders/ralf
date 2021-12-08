@@ -28,7 +28,7 @@ class Ralf:
         self.log_wandb = log_wandb
         if self.log_wandb:
             import wandb
-            wandb.init(project="stl", entity="ucb-ralf", group=exp_id)
+            wandb.init(project="292-gdpr", entity="ucb-ralf", group=exp_id)
             wandb.run.name = exp_id
 
     def _make_metric_dir(self, metric_dir: Optional[str] = None):
@@ -93,6 +93,8 @@ class Ralf:
         )
 
         if self.log_wandb:
+            import wandb 
+
             wandb.log({"snapshot_duration": snapshot_duration})
             wandb.log({"raw_json": wandb.Html(serialized)})
             for actor_name in data.keys():
