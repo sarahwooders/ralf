@@ -229,34 +229,6 @@ class Operator(ABC):
     def on_delete_record(self, record: Record): 
         return "NOT_IMPLEMENTED"
 
-    ## batch update records
-    #def on_records(self, records: List[Record]): 
-    #    return "NOT_IMPLEMENTED"
-
-    #def replay_records(self, key): 
-    #    key = getattr(record, self._table.schema.primary_key)
-    #    with open(
-    #        f"/Users/sarahwooders/repos/gdpr-ralf/logs/{key}.txt", "a"
-    #    ) as f:
-    #        print("write", str(record))
-    #        f.write(str(record) + str(self._scopes) + "\n")
-
-
-
-    #def _on_delete_record_helper(self, record: Record): 
-
-    #    updated_record = on_delete_record(record)
-    #    if updated_record != "NOT_IMPLEMENTED": 
-    #        key = getattr(result, self._table.schema.primary_key)
-    #        with open(
-    #            f"/Users/sarahwooders/repos/gdpr-ralf/logs/{key}.txt", "a"
-    #            ) as f:
-
-    #        records = []
-    #        for line in f.readlines(): 
-    #            records.append(Record(json.loads(line)))
-
-
     def _delete_record_tree(root_key): 
 
         self._table.delete(root_key)
@@ -304,34 +276,30 @@ class Operator(ABC):
        
         # get keys affected by parent record
         keys = self.parent_to_keys[deleted_parent_record.key]
-        print("PARENT", deleted_parent_record.key, "CHILDREN", keys)
 
         for key in keys: 
    
-            # reconstruct 
+            # reconstruct (incremental)
             record = self.on_delete_record(deleted_parent_record)
-            print("DELETE", record)
-            if not isinstance(record, Record) or record is None: 
-                # determine keys dependent on upstream parent record
 
+            # reconstruct (non-incremental)
+            if not isinstance(record, Record) or record is None: 
+
+                # determine keys dependent on upstream parent record
                 parent_keys = self.key_to_parents[key]
-                print("parent keys", key, parent_keys)
 
                 # get required parent inputs 
                 parent_records = await asyncio.gather(
                     *[parent.get_async(key) for parent in self.get_parents() for key in parent_keys],
                     return_exceptions=True
                 )
-                print("parent records", parent_records)
 
                 # filter out exceptions/missing records
                 parent_records = [rec for rec in parent_records if isinstance(rec, Record)]
-                print("filtered", parent_records)
 
                 # TODO: (Sarah) this seems like it'd result in duplicate computation? 
                 # for each parent deletion we're processing seperately that all affect the same child
                 record = self.on_records(parent_records)
-                print("record", record)
 
 
             # assert that updated record has same key as you'd expect would be affected
@@ -342,7 +310,6 @@ class Operator(ABC):
             self._table.delete(key)
             if record is not None:
                 self._table.update(record)
-            print("TABLE", self._table.records)
 
             # call retract on dependent children
             for child in self._children:
